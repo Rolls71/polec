@@ -1,0 +1,13 @@
+[package]
+name = "polec"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+bevy = { version = "0.20.1", features = ["dynamic_linking"] }
+rand = "0.10.3"
+
+[profile.test]
+opt-level = 1
+
+
