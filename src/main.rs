@@ -1,7 +1,7 @@
 use bevy::prelude::*;
 
-
 mod cell_world;
+
 
 #[derive(Component)]
 struct MainCamera;
