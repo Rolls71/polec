@@ -1,11 +1,35 @@
 use bevy::prelude::*;
+use bevy::color::palettes::tailwind::*;
 use rand;
 use fastnoise_lite::*;
+use ghx_proc_gen::{
+    generator::{
+        builder::GeneratorBuilder,
+        model::{ModelCollection,Model},
+        rules::RulesBuilder,
+        socket::{SocketCollection, SocketsCartesian2D},
+    },
+    ghx_grid::cartesian::{
+        coordinates::{Cartesian2D, CartesianPosition},
+        grid::CartesianGrid,
+    },
+};
+
+
+
 
 const CELL_SCALE: i8 = 2; // CELL_SIZE = 2^CELL_SCALE
 const CELL_OFFSET: Vec3 = Vec3::new(0.5, 0.5, 0.0);
-const WORLD_WIDTH: i32 = 100;
-const WORLD_HEIGHT: i32 = 100;
+const WORLD_WIDTH: usize = 100;
+const WORLD_HEIGHT: usize = 100;
+
+const COL_WATER: Color = Color::Srgba(SKY_950);
+const COL_SAND: Color = Color::srgb_u8(255, 251, 147);
+const COL_GRASSLANDS: Color = Color::Srgba(LIME_400);
+const COL_FOREST: Color = Color::Srgba(LIME_950);
+const COL_MOUNTAIN: Color = Color::Srgba(BLUE_50);
+
+const WATER_LEVEL: f32 = 0.685;
 
 // const COL_ON: Srgba = tailwind::GRAY_100;
 // const COL_OFF: Srgba = tailwind::GRAY_500;
@@ -80,10 +104,6 @@ fn setup(
     mut materials: ResMut<Assets<ColorMaterial>>,
 ) {
     let rect = Rectangle::default();
-    let mut cols: Vec<ColorMaterial> = Vec::new();
-    for i in 0..10 {
-        cols.push(ColorMaterial::from_color(Color::srgb_u8((256*i / 10) as u8,(256*i / 10) as u8,(256*i / 10) as u8)));
-    }
 
     let seed:i32 = rand::random();
     let mut fnl_terrain = FastNoiseLite::new();
@@ -105,28 +125,74 @@ fn setup(
     fnl_terrain.set_fractal_gain(Some(0.15));
     fnl_terrain.domain_warp_2d(seed as f32, seed as f32);
 
+    let mut heights: [[f32; WORLD_HEIGHT as usize]; WORLD_WIDTH as usize] = [[0.0; WORLD_HEIGHT as usize]; WORLD_WIDTH as usize];
+
+    let mut sockets = SocketCollection::new();
+    let (water, sand, grasslands, forest, mountain) = (sockets.create(), sockets.create(), sockets.create(), sockets.create(), sockets.create());
+
+    sockets.add_connection(water, vec![water, sand, grasslands]);
+    sockets.add_connection(sand, vec![sand, grasslands]);
+    sockets.add_connection(grasslands, vec![grasslands, forest]);
+    sockets.add_connection(forest, vec![forest, mountain]);
+    sockets.add_connection(mountain, vec![mountain]);
 
 
-    for y in -WORLD_HEIGHT..WORLD_HEIGHT {
-        for x in -WORLD_WIDTH..WORLD_WIDTH {
+    let mut models = ModelCollection::<Cartesian2D>::new();
+    let m_water = models.create(SocketsCartesian2D::Mono(water)).with_weight(0.).clone();
+    models.create(SocketsCartesian2D::Mono(sand)).with_weight(0.5);
+    models.create(SocketsCartesian2D::Mono(grasslands));
+    models.create(SocketsCartesian2D::Mono(forest));
+    models.create(SocketsCartesian2D::Mono(mountain)).with_weight(0.5);
+
+    let colours = [
+        ColorMaterial::from_color(COL_WATER),
+        ColorMaterial::from_color(COL_SAND),
+        ColorMaterial::from_color(COL_GRASSLANDS),
+        ColorMaterial::from_color(COL_FOREST),
+        ColorMaterial::from_color(COL_MOUNTAIN),
+    ];
+
+    let rules = RulesBuilder::new_cartesian_2d(models, sockets).build().unwrap();
+
+    let grid = CartesianGrid::new_cartesian_2d(WORLD_WIDTH as u32, WORLD_HEIGHT as u32, false, false);
+
+    let mut starting_tiles: Vec<(CartesianPosition, Model<Cartesian2D>)> = vec![];
+    for y in 0..WORLD_HEIGHT {
+        for x in 0..WORLD_WIDTH {
             let terrain_height = (fnl_terrain.get_noise_2d(x as f32, y as f32)+1.0)/2.0;
             let plate_height = (fnl_plates.get_noise_2d(x as f32, y as f32)+1.0)/2.0;
             let t = 1.0;
             let p = 3.0;
             let bal = 0.1*(t+p);
             let height = terrain_height.powf(bal*(1.0/t)) * plate_height.powf(bal*(1.0/p));
-            let colour = cols.get(((height+1.0)*5.0) as usize %10).unwrap().clone();
-            let grid_pos = GridPos { pos: IVec2::new(x, y), scalar: Scalar(CELL_SCALE)};
+            heights[x as usize][y as usize] = height;
+            if height < WATER_LEVEL {
+                starting_tiles.push((CartesianPosition::new_xy(x as u32,y as u32), m_water.clone()));
+            }
+        }
+    }
+
+    let mut generator = GeneratorBuilder::new()
+    .with_rules(rules)
+    .with_grid(grid)
+    .with_initial_nodes(starting_tiles).unwrap()
+    .build()
+    .unwrap();
+
+    let (_gen_info, world_pattern) = generator.generate_grid().unwrap();
+    for y in 0..WORLD_HEIGHT {
+        for x in 0..WORLD_WIDTH {
+            let grid_pos = GridPos { pos: IVec2::new(x as i32, y as i32), scalar: Scalar(CELL_SCALE)};
+            let tile = world_pattern.get_2d(x as u32, y as u32);
             commands.spawn((
                 Cell,
                 Mesh2d(meshes.add(rect)),
-                MeshMaterial2d(materials.add(colour)),
+                MeshMaterial2d(materials.add(colours[tile.model_index].clone())),
                 grid_pos,
                 grid_pos.to_transform(CELL_OFFSET),
             ));
         }
     }
-
 }
 
 
