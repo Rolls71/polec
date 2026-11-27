@@ -1,6 +1,6 @@
 use bevy::prelude::*;
 
-mod cell_world;
+mod world_gen;
 
 
 #[derive(Component)]
@@ -9,7 +9,7 @@ struct MainCamera;
 
 fn main() {
     App::new()
-    .add_plugins((DefaultPlugins, cell_world::CellWorldPlugin))
+    .add_plugins((DefaultPlugins, world_gen::WorldPlugin))
     .add_systems(Startup, camera_setup)
     .add_systems(Update, camera_movement)
     .run();
@@ -18,7 +18,7 @@ fn main() {
 fn camera_setup(
     mut commands: Commands,
 ) {
-    commands.spawn((Camera2d::default(), MainCamera));
+    commands.spawn((Camera2d, MainCamera, Transform::from_xyz(500., 500., 0.)));
 }
 
 fn camera_movement(
